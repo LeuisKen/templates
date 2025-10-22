@@ -29,7 +29,8 @@ namespace WebApiHost
         {
             Configuration = configuration;
             HostingEnvironment = hostingEnvironment;
-            JwtEnabled = bool.Parse(Configuration["JWT:Enabled"]);
+            var jwtEnabledValue = Configuration["JWT:Enabled"];
+            JwtEnabled = bool.TryParse(jwtEnabledValue, out var enabled) ? enabled : false;
         }
 
         public IConfiguration Configuration { get; }
