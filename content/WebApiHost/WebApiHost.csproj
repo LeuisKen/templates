@@ -7,8 +7,7 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="EMG.Extensions.AspNetCore.Authentication.JWT" Version="1.1.1" />
-		<PackageReference Include="EMG.Extensions.AspNetCore.Filters.Error" Version="1.1.1" />
+		<PackageReference Include="EMG.AspNetCore.Authentication.JWT" Version="2.0.0" />
 		<PackageReference Include="EMG.Extensions.Logging.Loggly" Version="1.4.0" />
 		<PackageReference Include="Kralizek.Extensions.Logging" Version="3.0.0" />
 		<!--#if (AddDiscoveryAdapter) -->
