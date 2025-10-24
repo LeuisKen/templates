@@ -2,14 +2,18 @@
 using Amazon.SimpleNotificationService;
 using EMG.Common;
 //#endif
-using EMG.Extensions.AspNetCore;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc.Authorization;
+using EMG.AspNetCore.Authentication.JWT.Options;
+using EMG.AspNetCore;
+using System.Security.Claims;
+using System.Threading.Tasks;
 //#if (AddDiscoveryAdapter)
 using EMG.Extensions.DependencyInjection.Discovery;
 using System.ServiceModel;
 //#endif
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -25,37 +29,40 @@ namespace WebApiHost
         {
             Configuration = configuration;
             HostingEnvironment = hostingEnvironment;
+            var jwtEnabledValue = Configuration["JWT:Enabled"];
+            JwtEnabled = bool.TryParse(jwtEnabledValue, out var enabled) ? enabled : false;
         }
 
         public IConfiguration Configuration { get; }
 
         public IHostEnvironment HostingEnvironment { get; }
 
+        private bool JwtEnabled { get; }
+
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddMvc(ConfigureMvc);
+            var mvc = services.AddMvc(config =>
+            {
+                config.EnableEndpointRouting = false;
+                if (!JwtEnabled) return;
+                var policy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
+                config.Filters.Add(new AuthorizeFilter(policy));
+            });
+
+            if (JwtEnabled)
+            {
+                ConfigureJwt(mvc);
+            }
 
             // Adds support for ASP.NET Core health checks: https://docs.microsoft.com/en-us/aspnet/core/host-and-deploy/health-checks?view=aspnetcore-2.2
-            services.AddHealthChecks(); 
+            services.AddHealthChecks();
+            //#if (AddNybus)
 
-            // Adds support for JWT authentication
-            services.AddJwtAuthentication(Configuration)
-                    
-                    // Extracts the authentication data from the form data of a POST request
-                    .AddFormUserExtractor() 
-                    
-                    // Matches incoming credentials with credentials fetched from the configuration values
-                    .AddBasicUserAuthenticator() 
-
-                    // If the delegate returns true, adds an authentication filter at global level that forbids anonymous requests
-                    .RequireAuthentication(() => HostingEnvironment.IsProduction()); 
-//#if (AddNybus)
-            
             // Configures Nybus to use RabbitMQ engine and fetch settings from the configuration values
             services.AddNybus(nybus =>
             {
                 nybus.UseConfiguration(Configuration);
-                
+
                 nybus.UseRabbitMqBusEngine(rabbitMq =>
                 {
                     rabbitMq.UseConfiguration();
@@ -72,35 +79,51 @@ namespace WebApiHost
                 ConfigureServiceDiscovery(Configuration.GetSection("Discovery")).
                 ConfigureServiceDiscovery(o =>
                 {
-                o.ConfigureDiscoveryAdapterBinding = binding =>
-                {
-                    binding.Security.Mode = SecurityMode.None;
-                };
+                    o.ConfigureDiscoveryAdapterBinding = binding =>
+                    {
+                        binding.Security.Mode = SecurityMode.None;
+                    };
                 });
             services.AddServiceDiscoveryAdapter();
             services.AddBindingCustomization(binding => binding.Security.Mode = SecurityMode.None);
             // To register a discoverable WCF service, uncomment the line below and replace 'IYourServiceContract' with the appropriate service interface:
-            // services.DiscoverServiceUsingAdapter<IYourServiceContract>();  
-        //#endif
-        //#if (AddNybusBridge || ConfigureAWS)
+            // services.DiscoverServiceUsingAdapter<IYourServiceContract>();
+            //#endif
+            //#if (AddNybusBridge || ConfigureAWS)
 
-        // Configures AWS using the configuration values
-        services.AddDefaultAWSOptions(Configuration.GetAWSOptions());
-//#endif
-//#if (AddNybusBridge)
-            
+            // Configures AWS using the configuration values
+            services.AddDefaultAWSOptions(Configuration.GetAWSOptions());
+            //#endif
+            //#if (AddNybusBridge)
+
             // Registers the SNS client
             services.AddAWSService<IAmazonSimpleNotificationService>();
 
             services.AddSingleton<INybusBridge, SnsNybusBridge>();
-//#endif
-            
-            void ConfigureMvc(MvcOptions options)
+            //#endif
+        }
+
+        private void ConfigureJwt(IMvcBuilder mvc)
+        {
+           var options = new JwtOptions
             {
-                // Adds support for friendly error when an MVC action throws an uncaught exception
-                options.AddExceptionHandlerFilter();
-                options.EnableEndpointRouting = false;
-            }
+                AuthenticateUser = user =>
+                {
+                    ClaimsIdentity identity = null;
+
+                    if (user.UserName == Configuration["JWT:Client:User"] && user.Password == Configuration["JWT:Client:Password"])
+                    {
+                        var claims = new[] { new Claim(ClaimTypes.Name, user.UserName) };
+                        identity = new ClaimsIdentity(claims);
+                    }
+
+                    return Task.FromResult(identity);
+                }
+            };
+
+            Configuration.GetSection("JWT").Bind(options);
+
+            mvc.AddJwtAuthentication(options);
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -122,7 +145,8 @@ namespace WebApiHost
             });
 
             // Uses JWT authentication flow
-            app.UseJwtAuthentication();
+            if (JwtEnabled)
+                app.UseAuthentication();
 
             app.UseHttpsRedirection();
             app.UseMvc();
