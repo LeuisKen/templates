@@ -30,8 +30,7 @@ This template creates a REST API hosted by a ASP.NET Core application.
 
 The following packages are added by default:
 
-- `EMG.Extensions.AspNetCore.Authentication.JWT`
-- `EMG.Extensions.AspNetCore.Filters.Error`
+- `EMG.AspNetCore.Authentication.JWT`
 - `EMG.Extensions.Logging.Loggly`
 
 You can customize the application by providing the following parameters
